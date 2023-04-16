@@ -27,16 +27,6 @@ func azureLogin() (cred *azidentity.EnvironmentCredential, err error) {
 	return cred, err
 }
 
-const (
-	subscriptionID            = "f406059a-f933-45e0-aefe-e37e0382d5de"
-	resourceGroupName         = "Strg4Test"
-	resourceProviderNamespace = "Microsoft.Storage"
-
-	resourceType = "storageAccounts"
-	resourceName = "strg4test01"
-	apiVersion   = "2021-04-01"
-)
-
 func getResource(cred azcore.TokenCredential) {
 
 	ctx := context.Background()
@@ -53,8 +43,8 @@ func getResource(cred azcore.TokenCredential) {
 	}
 
 	newRuleSet := &armstorage.IPRule{
-		Action:           &[]string{"Deny"}[0],
-		IPAddressOrRange: &[]string{"192.168.0.1/24"}[0],
+		Action:           &[]string{"Allow"}[0],
+		IPAddressOrRange: &[]string{"4.4.4.4/24"}[0],
 	}
 
 	resource.Properties.NetworkRuleSet.IPRules = append(resource.Properties.NetworkRuleSet.IPRules, newRuleSet)
@@ -65,8 +55,7 @@ func getResource(cred azcore.TokenCredential) {
 
 	fmt.Println(*resource.Properties)
 
-	response, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{resource.Properties}}, nil)
-
+	response, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{NetworkRuleSet: resource.Properties.NetworkRuleSet}}, nil)
 	if err != nil {
 		panic(err)
 	}
