@@ -86,9 +86,7 @@ func updateNetAcl(cred azcore.TokenCredential, resourceId, allowIPList, allowVNe
 			fmt.Println(*v.IPAddressOrRange, *v.Action)
 		}
 
-		fmt.Println(*resource.Properties)
-
-		response, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{NetworkRuleSet: resource.Properties.NetworkRuleSet}}, nil)
+		response, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{PublicNetworkAccess: &[]armstorage.PublicNetworkAccess{armstorage.PublicNetworkAccessDisabled}[0], NetworkRuleSet: resource.Properties.NetworkRuleSet}}, nil)
 		if err != nil {
 			panic(err)
 		}
@@ -98,6 +96,7 @@ func updateNetAcl(cred azcore.TokenCredential, resourceId, allowIPList, allowVNe
 }
 
 func getInputParams() (resList, ipList, vnetList string) {
+	// returns input data from CLI
 	app := &cli.App{
 		Name:                 "aznet",
 		Usage:                "CLI tool to set Azure PaaS network access",
