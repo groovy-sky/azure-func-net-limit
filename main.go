@@ -86,7 +86,9 @@ func updateNetAcl(cred azcore.TokenCredential, resourceId, allowIPList, allowVNe
 			fmt.Println(*v.IPAddressOrRange, *v.Action)
 		}
 
-		response, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{PublicNetworkAccess: &[]armstorage.PublicNetworkAccess{armstorage.PublicNetworkAccessDisabled}[0], NetworkRuleSet: resource.Properties.NetworkRuleSet}}, nil)
+		resource.Properties.NetworkRuleSet.DefaultAction = &[]armstorage.DefaultAction{armstorage.DefaultActionDeny}[0]
+
+		response, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{NetworkRuleSet: resource.Properties.NetworkRuleSet}}, nil)
 		if err != nil {
 			panic(err)
 		}
