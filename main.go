@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -40,7 +41,7 @@ func validateIPaddr(input string) bool {
 }
 
 func parseIPaddr(ips string) (result []string) {
-	// Parses input values, splits and stores to arr
+	// Parses input values, splits, validates if these are valid IPv4 and stores to arr
 
 	// removing whitespaces
 	ips = strings.ReplaceAll(ips, " ", "")
@@ -49,6 +50,28 @@ func parseIPaddr(ips string) (result []string) {
 	for _, ip := range strings.Split(ips, ";") {
 		if validateIPaddr(ip) {
 			result = append(result, ip)
+		}
+	}
+	return result
+}
+
+func validateResId(input string) bool {
+	// Validates that input is valid Azure Resource Id using regex
+	regex := `^\/subscriptions\/.{36}\/resourceGroups\/.*\/providers\/[a-zA-Z0-9]*.[a-zA-Z0-9]*\/[a-zA-Z0-9]*\/.*`
+	r := regexp.MustCompile(regex)
+	return r.MatchString(input)
+}
+
+func parseVNetId(ids string) (result []string) {
+	// Parses input values, splits and stores to arr
+
+	// removing whitespaces
+	ids = strings.ReplaceAll(ids, " ", "")
+	// replacing newlines with semicolons
+	ids = strings.ReplaceAll(ids, "\n", ";")
+	for _, id := range strings.Split(ids, ";") {
+		if validateResId(id) {
+			result = append(result, id)
 		}
 	}
 	return result
@@ -64,7 +87,7 @@ func parseResourceId(resourceId string) (subscriptionId, resourceGroup, resource
 	return subscriptionId, resourceGroup, resourceProvider, resourceName
 }
 
-func updateNetAcl(cred azcore.TokenCredential, resourceId, allowVNetList string, allowIPList []string) {
+func updateNetAcl(cred azcore.TokenCredential, resourceId string, allowVNetList, allowIPList []string) {
 
 	subscriptionID, resourceGroupName, resourceProvider, resourceName := parseResourceId(resourceId)
 
@@ -174,6 +197,6 @@ func main() {
 	if err != nil {
 		log.Fatal("[ERR] Failed to login:\n", err)
 	}
-	updateNetAcl(login, res, vnets, parseIPaddr(ips))
+	updateNetAcl(login, res, parseVNetId(vnets), parseIPaddr(ips))
 
 }
