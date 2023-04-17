@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"strings"
 
@@ -24,7 +25,7 @@ type resourceProperties struct {
 }
 
 func azureLogin() (cred *azidentity.EnvironmentCredential, err error) {
-
+	// Tries to get Azure credentials
 	cred, err = azidentity.NewEnvironmentCredential(nil)
 	if err != nil {
 		fmt.Println("[TODO] Azure login failure handeling")
@@ -32,7 +33,29 @@ func azureLogin() (cred *azidentity.EnvironmentCredential, err error) {
 	return cred, err
 }
 
+func validateIPaddr(input string) bool {
+	// Validates that input is valid IPv4 address
+	ip := net.ParseIP(input)
+	return ip != nil && ip.To4() != nil
+}
+
+func parseIPaddr(ips string) (result []string) {
+	// Parses input values, splits and stores to arr
+
+	// removing whitespaces
+	ips = strings.ReplaceAll(ips, " ", "")
+	// replacing newlines with semicolons
+	ips = strings.ReplaceAll(ips, "\n", ";")
+	for _, ip := range strings.Split(ips, ";") {
+		if validateIPaddr(ip) {
+			result = append(result, ip)
+		}
+	}
+	return result
+}
+
 func parseResourceId(resourceId string) (subscriptionId, resourceGroup, resourceProvider, resourceName string) {
+	// takes Azure resource Id and parses sub id, group, resource type and name
 	parts := strings.Split(resourceId, "/")
 	subscriptionId = parts[2]
 	resourceGroup = parts[4]
@@ -41,7 +64,7 @@ func parseResourceId(resourceId string) (subscriptionId, resourceGroup, resource
 	return subscriptionId, resourceGroup, resourceProvider, resourceName
 }
 
-func updateNetAcl(cred azcore.TokenCredential, resourceId, allowIPList, allowVNetList string) {
+func updateNetAcl(cred azcore.TokenCredential, resourceId, allowVNetList string, allowIPList []string) {
 
 	subscriptionID, resourceGroupName, resourceProvider, resourceName := parseResourceId(resourceId)
 
@@ -60,7 +83,7 @@ func updateNetAcl(cred azcore.TokenCredential, resourceId, allowIPList, allowVNe
 			panic(err)
 		}
 
-		for _, ip := range strings.Split(allowIPList, ";") {
+		for _, ip := range allowIPList {
 			var exists bool
 			for _, ipRule := range resource.Properties.NetworkRuleSet.IPRules {
 				if *ipRule.IPAddressOrRange == ip {
@@ -134,10 +157,10 @@ func getInputParams() (resList, ipList, vnetList string) {
 
 	err := app.Run(os.Args)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("[ERR] Failed to get input:\n", err)
 	}
 	if resList == "" || (ipList == "" && vnetList == "") {
-		log.Fatal("[ERR] Not enough imput parameters")
+		log.Fatal("[ERR] Not enough input parameters")
 	}
 	return resList, ipList, vnetList
 
@@ -149,8 +172,8 @@ func main() {
 
 	login, err := azureLogin()
 	if err != nil {
-		panic(err)
+		log.Fatal("[ERR] Failed to login:\n", err)
 	}
-	updateNetAcl(login, res, ips, vnets)
+	updateNetAcl(login, res, vnets, parseIPaddr(ips))
 
 }
