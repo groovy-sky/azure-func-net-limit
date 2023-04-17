@@ -16,15 +16,6 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-type accessList struct {
-	ips   []string
-	vnets []string
-}
-
-type resourceProperties struct {
-	networkAcls *string `json:"networkAcls,omitempty"`
-}
-
 func azureLogin() (cred *azidentity.EnvironmentCredential, err error) {
 	// Tries to get Azure credentials
 	cred, err = azidentity.NewEnvironmentCredential(nil)
@@ -62,21 +53,6 @@ func validateResId(input string) bool {
 	return r.MatchString(input)
 }
 
-func parseVNetId(ids string) (result []string) {
-	// Parses input values, splits and stores to arr
-
-	// removing whitespaces
-	ids = strings.ReplaceAll(ids, " ", "")
-	// replacing newlines with semicolons
-	ids = strings.ReplaceAll(ids, "\n", ";")
-	for _, id := range strings.Split(ids, ";") {
-		if validateResId(id) {
-			result = append(result, id)
-		}
-	}
-	return result
-}
-
 func parseResourceId(resourceId string) (subscriptionId, resourceGroup, resourceProvider, resourceName string) {
 	// takes Azure resource Id and parses sub id, group, resource type and name
 	parts := strings.Split(resourceId, "/")
@@ -87,7 +63,12 @@ func parseResourceId(resourceId string) (subscriptionId, resourceGroup, resource
 	return subscriptionId, resourceGroup, resourceProvider, resourceName
 }
 
-func updateNetAcl(cred azcore.TokenCredential, resourceId string, allowVNetList, allowIPList []string) {
+func updateNetAcl(cred azcore.TokenCredential, resourceId string, allowIPList []string) (err error) {
+	// Takes as input resource id and tries to apply to it IP/VNet restrictions
+
+	if !validateResId(resourceId) {
+		return (fmt.Errorf("[ERR]: %s is malformed", resourceId))
+	}
 
 	subscriptionID, resourceGroupName, resourceProvider, resourceName := parseResourceId(resourceId)
 
@@ -98,14 +79,17 @@ func updateNetAcl(cred azcore.TokenCredential, resourceId string, allowVNetList,
 		storageAccountsClient, err := armstorage.NewAccountsClient(subscriptionID, cred, nil)
 
 		if err != nil {
-			panic(err)
+			return (fmt.Errorf("[ERR]: Couldn't access %s\n%e", resourceName, err))
 		}
 
 		resource, err := storageAccountsClient.GetProperties(ctx, resourceGroupName, resourceName, &armstorage.AccountsClientGetPropertiesOptions{Expand: nil})
 		if err != nil {
-			panic(err)
+			return (fmt.Errorf("[ERR]: Couldn't get properties of %s\n%e", resourceName, err))
 		}
 
+		oldIPRuleSetSize := len(resource.Properties.NetworkRuleSet.IPRules)
+
+		// Appends allowed IPs w check for duplicates
 		for _, ip := range allowIPList {
 			var exists bool
 			for _, ipRule := range resource.Properties.NetworkRuleSet.IPRules {
@@ -132,18 +116,23 @@ func updateNetAcl(cred azcore.TokenCredential, resourceId string, allowVNetList,
 			fmt.Println(*v.IPAddressOrRange, *v.Action)
 		}
 
-		resource.Properties.NetworkRuleSet.DefaultAction = &[]armstorage.DefaultAction{armstorage.DefaultActionDeny}[0]
+		if oldIPRuleSetSize < len(resource.Properties.NetworkRuleSet.IPRules) {
 
-		response, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{NetworkRuleSet: resource.Properties.NetworkRuleSet}}, nil)
-		if err != nil {
-			panic(err)
+			resource.Properties.NetworkRuleSet.DefaultAction = &[]armstorage.DefaultAction{armstorage.DefaultActionDeny}[0]
+
+			response, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{NetworkRuleSet: resource.Properties.NetworkRuleSet}}, nil)
+			if err != nil {
+				return err
+			}
+			fmt.Println(response)
 		}
-		fmt.Println(response)
+
 	}
+	return err
 
 }
 
-func getInputParams() (resList, ipList, vnetList string) {
+func getInputParams() (resList, ipList string) {
 	// returns input data from CLI
 	app := &cli.App{
 		Name:                 "aznet",
@@ -157,7 +146,7 @@ func getInputParams() (resList, ipList, vnetList string) {
 				Name:        "source",
 				Aliases:     []string{"s"},
 				Value:       "",
-				Usage:       "Sources of PaaS resources list",
+				Usage:       "PaaS resources list",
 				Destination: &resList,
 				Required:    true,
 			},
@@ -165,15 +154,9 @@ func getInputParams() (resList, ipList, vnetList string) {
 				Name:        "ips",
 				Aliases:     []string{"i"},
 				Value:       "",
-				Usage:       "Allowed IPs list",
+				Usage:       "Allowed IPs",
 				Destination: &ipList,
-			},
-			&cli.StringFlag{
-				Name:        "vnets",
-				Aliases:     []string{"v"},
-				Value:       "",
-				Usage:       "Allowed VNets list",
-				Destination: &vnetList,
+				Required:    true,
 			},
 		},
 	}
@@ -182,21 +165,19 @@ func getInputParams() (resList, ipList, vnetList string) {
 	if err != nil {
 		log.Fatal("[ERR] Failed to get input:\n", err)
 	}
-	if resList == "" || (ipList == "" && vnetList == "") {
-		log.Fatal("[ERR] Not enough input parameters")
-	}
-	return resList, ipList, vnetList
+
+	return resList, ipList
 
 }
 
 func main() {
 
-	res, ips, vnets := getInputParams()
+	res, ips := getInputParams()
 
 	login, err := azureLogin()
 	if err != nil {
 		log.Fatal("[ERR] Failed to login:\n", err)
 	}
-	updateNetAcl(login, res, parseVNetId(vnets), parseIPaddr(ips))
+	fmt.Println(updateNetAcl(login, res, parseIPaddr(ips)))
 
 }
