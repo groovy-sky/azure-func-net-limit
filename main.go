@@ -25,10 +25,40 @@ func azureLogin() (cred *azidentity.EnvironmentCredential, err error) {
 	return cred, err
 }
 
-func validateIPaddr(input string) bool {
-	// Validates that input is valid IPv4 address
-	ip := net.ParseIP(input)
-	return ip != nil && ip.To4() != nil
+func validateIPaddr(input string) (valid bool) {
+	// Validates that input is valid IPv4/CIDR
+
+	// Checks that addr matches with IPv4 struct
+	regex := `^(?:[0-9]{1,3}\.){3}[0-9]{1,3}.*`
+	r := regexp.MustCompile(regex)
+
+	if r.MatchString(input) {
+		switch strings.Contains(input, "/") {
+		case false:
+			input = input + "/32"
+			fallthrough
+		default:
+			ip, _, err := net.ParseCIDR(input)
+			if err == nil && !ip.IsPrivate() {
+				valid = true
+			}
+
+		}
+	}
+
+	return valid
+}
+
+func unique(intSlice []string) []string {
+	keys := make(map[string]bool)
+	list := []string{}
+	for _, entry := range intSlice {
+		if _, value := keys[entry]; !value {
+			keys[entry] = true
+			list = append(list, entry)
+		}
+	}
+	return list
 }
 
 func parseIPaddr(ips string) (result []string) {
@@ -43,6 +73,7 @@ func parseIPaddr(ips string) (result []string) {
 			result = append(result, ip)
 		}
 	}
+	result = unique(result)
 	return result
 }
 
