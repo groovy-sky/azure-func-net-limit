@@ -86,7 +86,7 @@ func mergeIPNets(v1, v2 *IPv4Vector) (uint32, uint32, error) {
 	}
 	// Create CIDR
 
-	fmt.Println(minIP, "/", 32-countDifferentBits(minIP, maxIP))
+	fmt.Println(binaryToIP(minIP), "/", 32-countDifferentBits(minIP, maxIP))
 	return minIP, maxIP, nil
 }
 
