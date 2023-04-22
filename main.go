@@ -1,6 +1,7 @@
 package main
 
 import (
+	"azure-func-net-limit/netmerge"
 	"context"
 	"fmt"
 	"log"
@@ -95,6 +96,7 @@ func parseResourceId(resourceId string) (subscriptionId, resourceGroup, resource
 }
 
 func updateNetAcl(cred azcore.TokenCredential, resourceId string, allowIPList []string) (err error) {
+	var whitelistIps []string
 	// Takes as input resource id and tries to apply to it IP/VNet restrictions
 
 	if !validateResId(resourceId) {
@@ -131,20 +133,15 @@ func updateNetAcl(cred azcore.TokenCredential, resourceId string, allowIPList []
 
 			}
 			if !exists {
-				newRuleSet := &armstorage.IPRule{
-					Action:           &[]string{"Allow"}[0],
-					IPAddressOrRange: &[]string{ip}[0],
-				}
-				resource.Properties.NetworkRuleSet.IPRules = append(resource.Properties.NetworkRuleSet.IPRules, newRuleSet)
+				whitelistIps = append(whitelistIps, ip)
 			}
 		}
 
-		for _, ipRule := range resource.Properties.NetworkRuleSet.IPRules {
-			fmt.Println(*ipRule)
-		}
-
-		for _, v := range resource.Properties.NetworkRuleSet.IPRules {
-			fmt.Println(*v.IPAddressOrRange, *v.Action)
+		for len(resource.Properties.NetworkRuleSet.IPRules) > 10 {
+			whitelistIps, err = netmerge.MergeCIDRs(whitelistIps, 10)
+			if err != nil {
+				return err
+			}
 		}
 
 		if oldIPRuleSetSize < len(resource.Properties.NetworkRuleSet.IPRules) {
