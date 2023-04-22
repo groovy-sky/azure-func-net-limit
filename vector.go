@@ -43,8 +43,10 @@ func binaryToDecimal(b []byte) uint32 {
 	return uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
 }
 
-func closestVectors(vectors []IPv4Vector) (IPv4Vector, IPv4Vector, error) {
-	if len(vectors) < 2 {
+func closestVectors(in *[]IPv4Vector) (IPv4Vector, IPv4Vector, error) {
+
+	var firstIndex, lastIndex int
+	if len(*in) < 2 {
 		return IPv4Vector{}, IPv4Vector{}, fmt.Errorf("not enough vectors")
 	}
 
@@ -52,26 +54,49 @@ func closestVectors(vectors []IPv4Vector) (IPv4Vector, IPv4Vector, error) {
 	closest2 := IPv4Vector{}
 	closestDist := math.Inf(1)
 
-	for i := 0; i < len(vectors)-1; i++ {
-		for j := i + 1; j < len(vectors); j++ {
-			dist := float64(distance(vectors[i], vectors[j]))
+	for i := 0; i < len(*in)-1; i++ {
+		for j := i + 1; j < len(*in); j++ {
+			dist := float64(distance((*in)[i], (*in)[j]))
 			if dist < closestDist {
-				closest1 = vectors[i]
-				closest2 = vectors[j]
+				closest1 = (*in)[i]
+				closest2 = (*in)[j]
 				closestDist = dist
+				if i > j {
+					firstIndex = j
+					lastIndex = i
+				} else {
+					firstIndex = i
+					lastIndex = j
+				}
+
 			}
 		}
 	}
+
+	*in = append((*in)[:lastIndex], (*in)[lastIndex+1:]...)
+	*in = append((*in)[:firstIndex], (*in)[firstIndex+1:]...)
 
 	return closest1, closest2, nil
 }
 
 func distance(v1, v2 IPv4Vector) uint32 {
-	return uint32(math.Abs(float64(int32(v1.FirstIP-v2.FirstIP)))) +
-		uint32(math.Abs(float64(int32(v1.LastIP-v2.LastIP))))
+	var minIP, maxIP uint32
+	if v1.FirstIP > v2.FirstIP {
+		minIP = v1.FirstIP - v2.FirstIP
+	} else {
+		minIP = v2.FirstIP - v1.FirstIP
+	}
+
+	if v1.LastIP > v2.LastIP {
+		maxIP = v1.LastIP - v2.LastIP
+	} else {
+		maxIP = v2.LastIP - v1.LastIP
+	}
+	return uint32(math.Abs(float64(int32(minIP)))) +
+		uint32(math.Abs(float64(int32(maxIP))))
 }
 
-func mergeIPNets(v1, v2 *IPv4Vector) (uint32, uint32, error) {
+func mergeIPNets(v1, v2 *IPv4Vector) (out IPv4Vector, err error) {
 	var minIP, maxIP uint32
 	if v1.FirstIP > v2.FirstIP {
 		minIP = v2.FirstIP
@@ -84,10 +109,14 @@ func mergeIPNets(v1, v2 *IPv4Vector) (uint32, uint32, error) {
 	} else {
 		maxIP = v2.LastIP
 	}
-	// Create CIDR
 
-	fmt.Println(binaryToIP(minIP), "/", 32-countDifferentBits(minIP, maxIP))
-	return minIP, maxIP, nil
+	newMask := 32 - countDifferentBits(minIP, maxIP)
+	newIP := binaryToIP(minIP).To4()
+	newCIDR := fmt.Sprintf("%s/%d", newIP, newMask)
+
+	out, err = cidrToVector(newCIDR)
+
+	return out, err
 }
 
 func splitUint32ToBinaryParts(input uint32) []string {
@@ -126,20 +155,41 @@ func binaryToIP(ip uint32) net.IP {
 	return net.IPv4(byte(ip>>24), byte(ip>>16), byte(ip>>8), byte(ip))
 }
 
-func main() {
+func uint32ToIP(ip uint32) string {
+	return fmt.Sprintf("%d.%d.%d.%d", byte(ip>>24), byte(ip>>16), byte(ip>>8), byte(ip))
+}
+
+func MergeCIDRs(input []string, maxIpNum uint8) (out []string, err error) {
 	var vectors []IPv4Vector
-	for _, i := range []string{"192.168.0.0/27", "192.168.0.64/26"} {
+	for _, i := range input {
 		v, err := cidrToVector(i)
 		if err != nil {
-			fmt.Println(err)
+			return out, err
 		} else {
 			vectors = append(vectors, v)
 		}
 	}
-	v1, v2, _ := closestVectors(vectors)
-	fmt.Println(v1, v2)
-	x1, x2, _ := mergeIPNets(&v1, &v2)
-	fmt.Println(splitUint32ToBinaryParts(x1))
-	fmt.Println(splitUint32ToBinaryParts(x2))
-	fmt.Println(countDifferentBits(x1, x2))
+
+	var newRange IPv4Vector
+	v1, v2, err := closestVectors(&vectors)
+	if err != nil {
+		return out, err
+	}
+	newRange, err = mergeIPNets(&v1, &v2)
+	if err != nil {
+		return out, err
+	}
+	vectors = append(vectors, newRange)
+
+	for _, v := range vectors {
+		ip := uint32ToIP(v.FirstIP)
+		mask, _ := v.CIDR.Mask.Size()
+		out = append(out, fmt.Sprintf("%s/%d", ip, mask))
+	}
+	return out, err
+}
+
+func main() {
+	fmt.Println(MergeCIDRs([]string{"192.168.0.0/27", "192.168.0.128/26", "192.168.0.0/29", "15.16.0.0/26", "8.8.8.9/23"}, 3))
+
 }
