@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"net-limit-azure-paas/netmerge"
+	"github.com/groovy-sky/net-limit-azure-paas/v2/netmerge"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
