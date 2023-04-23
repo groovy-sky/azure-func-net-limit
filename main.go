@@ -96,8 +96,9 @@ func parseResourceId(resourceId string) (subscriptionId, resourceGroup, resource
 	return subscriptionId, resourceGroup, resourceProvider, resourceName
 }
 
-func updateNetAcl(cred azcore.TokenCredential, resourceId string, allowIPList []string) (err error) {
+func SetPaasNet(cred azcore.TokenCredential, resourceId string, allowIPList []string) (err error) {
 	var whitelistIps []string
+	var newIpRuleSet []*armstorage.IPRule
 	// Takes as input resource id and tries to apply to it IP/VNet restrictions
 
 	if !validateResId(resourceId) {
@@ -138,14 +139,24 @@ func updateNetAcl(cred azcore.TokenCredential, resourceId string, allowIPList []
 			}
 		}
 
-		for len(resource.Properties.NetworkRuleSet.IPRules) > 10 {
-			whitelistIps, err = netmerge.MergeCIDRs(whitelistIps, 10)
-			if err != nil {
-				return err
-			}
-		}
+		if oldIPRuleSetSize < len(whitelistIps) {
 
-		if oldIPRuleSetSize < len(resource.Properties.NetworkRuleSet.IPRules) {
+			for len(whitelistIps) > 10 {
+				whitelistIps, err = netmerge.MergeCIDRs(whitelistIps, 10)
+				if err != nil {
+					return err
+				}
+			}
+
+			for _, ip := range whitelistIps {
+				newRule := &armstorage.IPRule{
+					Action:           &[]string{"Allow"}[0],
+					IPAddressOrRange: &[]string{ip}[0],
+				}
+				newIpRuleSet = append(newIpRuleSet, []*armstorage.IPRule{newRule}...)
+
+			}
+			resource.Properties.NetworkRuleSet.IPRules = newIpRuleSet
 
 			resource.Properties.NetworkRuleSet.DefaultAction = &[]armstorage.DefaultAction{armstorage.DefaultActionDeny}[0]
 
@@ -207,6 +218,6 @@ func main() {
 	if err != nil {
 		log.Fatal("[ERR] Failed to login:\n", err)
 	}
-	fmt.Println(updateNetAcl(login, res, parseIPaddr(ips)))
+	fmt.Println(SetPaasNet(login, res, parseIPaddr(ips)))
 
 }
