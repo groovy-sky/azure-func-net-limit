@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"strings"
 )
 
 type IPv4Vector struct {
@@ -13,6 +14,7 @@ type IPv4Vector struct {
 	CIDR    net.IPNet
 }
 
+// Parses input string and stores first IP, last IP and CIDR to IPv4Vector type
 func cidrToVector(cidr string) (vector IPv4Vector, err error) {
 	ip, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {
@@ -30,23 +32,14 @@ func cidrToVector(cidr string) (vector IPv4Vector, err error) {
 	return vector, err
 }
 
-func ipToUint32(ip net.IP) uint32 {
-	return binaryToDecimal(ip.To4())
-}
-
-func binaryToDecimal(b []byte) uint32 {
-	return uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
-}
-
-func closestVectors(in *[]IPv4Vector) (IPv4Vector, IPv4Vector, error) {
+// Searches for closest IP ranges
+func closestVectors(in *[]IPv4Vector) (closest1, closest2 IPv4Vector, err error) {
 
 	var firstIndex, lastIndex int
 	if len(*in) < 2 {
-		return IPv4Vector{}, IPv4Vector{}, fmt.Errorf("not enough vectors")
+		return IPv4Vector{}, IPv4Vector{}, fmt.Errorf("[ERR]: Vectors number should be >2")
 	}
 
-	closest1 := IPv4Vector{}
-	closest2 := IPv4Vector{}
 	closestDist := math.Inf(1)
 
 	for i := 0; i < len(*in)-1; i++ {
@@ -74,6 +67,7 @@ func closestVectors(in *[]IPv4Vector) (IPv4Vector, IPv4Vector, error) {
 	return closest1, closest2, nil
 }
 
+// Calculate distance between two Vectors
 func distance(v1, v2 IPv4Vector) uint32 {
 	var minIP, maxIP uint32
 	if v1.FirstIP > v2.FirstIP {
@@ -87,10 +81,11 @@ func distance(v1, v2 IPv4Vector) uint32 {
 	} else {
 		maxIP = v2.LastIP - v1.LastIP
 	}
-	return uint32(math.Abs(float64(int32(minIP)))) +
-		uint32(math.Abs(float64(int32(maxIP))))
+	return uint32(float64(int32(minIP))) +
+		uint32(float64(int32(maxIP)))
 }
 
+// Searches for a smallest a largest IPs in uint32 and tries to calulate mask for them
 func mergeIPNets(v1, v2 *IPv4Vector) (out IPv4Vector, err error) {
 	var minIP, maxIP uint32
 	if v1.FirstIP > v2.FirstIP {
@@ -114,17 +109,7 @@ func mergeIPNets(v1, v2 *IPv4Vector) (out IPv4Vector, err error) {
 	return out, err
 }
 
-func splitUint32ToBinaryParts(input uint32) []string {
-	binaryValue := fmt.Sprintf("%032b", input)
-	binaryParts := make([]string, 4)
-	for i := 0; i < 4; i++ {
-		start := i * 8
-		end := (i + 1) * 8
-		binaryParts[i] = binaryValue[start:end]
-	}
-	return binaryParts
-}
-
+// Search for a first different bit, starting from higher bit
 func countDifferentBits(num1, num2 uint32) int {
 	// Convert the numbers to binary strings
 	bin1 := fmt.Sprintf("%032b", num1)
@@ -142,33 +127,40 @@ func countDifferentBits(num1, num2 uint32) int {
 	return 0
 }
 
+// Converts uint32 to net.IP format string
 func binaryToIP(ip uint32) net.IP {
 	return net.IPv4(byte(ip>>24), byte(ip>>16), byte(ip>>8), byte(ip))
 }
 
+// Converts uint32 to IPv4 format string
 func uint32ToIP(ip uint32) string {
 	return fmt.Sprintf("%d.%d.%d.%d", byte(ip>>24), byte(ip>>16), byte(ip>>8), byte(ip))
 }
 
+// Merges input CIDRs to specified maxIpNum value
 func MergeCIDRs(input []string, maxIpNum uint8) (out []string, err error) {
 	var vectors []IPv4Vector
 	for _, i := range input {
-		v, err := cidrToVector(i)
-		if err != nil {
-			return out, err
+		if !strings.Contains(i, "/") {
+			out = append(out, i)
 		} else {
-			vectors = append(vectors, v)
+			v, err := cidrToVector(i)
+			if err != nil {
+				return []string{}, err
+			} else {
+				vectors = append(vectors, v)
+			}
 		}
 	}
 
 	var newRange IPv4Vector
 	v1, v2, err := closestVectors(&vectors)
 	if err != nil {
-		return out, err
+		return []string{}, err
 	}
 	newRange, err = mergeIPNets(&v1, &v2)
 	if err != nil {
-		return out, err
+		return []string{}, err
 	}
 	vectors = append(vectors, newRange)
 

@@ -18,17 +18,18 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+// Login to Azure, using different kind of methods - credentials, managed identity
 func azureLogin() (cred *azidentity.EnvironmentCredential, err error) {
-	// Tries to get Azure credentials
+
 	cred, err = azidentity.NewEnvironmentCredential(nil)
 	if err != nil {
-		fmt.Println("[TODO] Azure login failure handeling")
+		return cred, err
 	}
 	return cred, err
 }
 
+// Validates that input is valid for Azure IPv4/CIDR
 func validateIPaddr(input string) (valid bool) {
-	// Validates that input is valid IPv4/CIDR
 
 	// Checks that addr matches with IPv4 struct
 	regex := `^(?:[0-9]{1,3}\.){3}[0-9]{1,3}.*`
@@ -51,9 +52,9 @@ func validateIPaddr(input string) (valid bool) {
 	return valid
 }
 
-func unique(intSlice []string) []string {
+// Removes duplicates from input slice
+func unique(intSlice []string) (list []string) {
 	keys := make(map[string]bool)
-	list := []string{}
 	for _, entry := range intSlice {
 		if _, value := keys[entry]; !value {
 			keys[entry] = true
@@ -63,6 +64,7 @@ func unique(intSlice []string) []string {
 	return list
 }
 
+// Converts input string to slice of ips, with duplicate/whitespace removal
 func parseIPaddr(ips string) (result []string) {
 	// Parses input values, splits, validates if these are valid IPv4 and stores to arr
 
@@ -79,6 +81,7 @@ func parseIPaddr(ips string) (result []string) {
 	return result
 }
 
+// Checks that input matches Azure Resource Id format
 func validateResId(input string) bool {
 	// Validates that input is valid Azure Resource Id using regex
 	regex := `^\/subscriptions\/.{36}\/resourceGroups\/.*\/providers\/[a-zA-Z0-9]*.[a-zA-Z0-9]*\/[a-zA-Z0-9]*\/.*`
@@ -86,6 +89,7 @@ func validateResId(input string) bool {
 	return r.MatchString(input)
 }
 
+// Gets Azure Resource's names of subscription, group, resource type etc.
 func parseResourceId(resourceId string) (subscriptionId, resourceGroup, resourceProvider, resourceName string) {
 	// takes Azure resource Id and parses sub id, group, resource type and name
 	parts := strings.Split(resourceId, "/")
@@ -96,8 +100,34 @@ func parseResourceId(resourceId string) (subscriptionId, resourceGroup, resource
 	return subscriptionId, resourceGroup, resourceProvider, resourceName
 }
 
-func SetPaasNet(cred azcore.TokenCredential, resourceId string, allowIPList []string) (err error) {
-	var whitelistIps []string
+func mergeIpLists(l1, l2 []string) []string {
+	// Create a map to store the merged slice with no duplicates
+	merged := make(map[string]bool)
+
+	// Add elements from the first slice to the map
+	for _, element := range l1 {
+		merged[element] = true
+	}
+
+	// Add elements from the second slice to the map
+	for _, element := range l2 {
+		merged[element] = true
+	}
+
+	// Create a new slice to store the merged slice with no duplicates
+	result := make([]string, 0, len(merged))
+
+	// Append the unique elements to the new slice
+	for element := range merged {
+		result = append(result, element)
+	}
+
+	// Return the merged slice with no duplicates
+	return result
+}
+
+// Whitelist specified IP list for PaaS resource, based on resource type
+func SetPaasNet(cred azcore.TokenCredential, resourceId string, newIPList []string) (err error) {
 	var newIpRuleSet []*armstorage.IPRule
 	// Takes as input resource id and tries to apply to it IP/VNet restrictions
 
@@ -122,33 +152,25 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, allowIPList []st
 			return (fmt.Errorf("[ERR]: Couldn't get properties of %s\n%e", resourceName, err))
 		}
 
-		oldIPRuleSetSize := len(resource.Properties.NetworkRuleSet.IPRules)
+		var oldIPList []string
 
-		// Appends allowed IPs w check for duplicates
-		for _, ip := range allowIPList {
-			var exists bool
-			for _, ipRule := range resource.Properties.NetworkRuleSet.IPRules {
-				if *ipRule.IPAddressOrRange == ip {
-					exists = true
-					break
-				}
-
-			}
-			if !exists {
-				whitelistIps = append(whitelistIps, ip)
-			}
+		for _, ipRule := range resource.Properties.NetworkRuleSet.IPRules {
+			oldIPList = append(oldIPList, *ipRule.IPAddressOrRange)
 		}
 
-		if oldIPRuleSetSize < len(whitelistIps) {
+		newIPList = mergeIpLists(newIPList, oldIPList)
 
-			for len(whitelistIps) > 10 {
-				whitelistIps, err = netmerge.MergeCIDRs(whitelistIps, 10)
+		if len(newIPList) > len(oldIPList) {
+			fmt.Println("Before: ", newIPList)
+			for len(newIPList) > 10 {
+				newIPList, err = netmerge.MergeCIDRs(newIPList, 10)
 				if err != nil {
 					return err
 				}
 			}
+			fmt.Println("After: ", newIPList)
 
-			for _, ip := range whitelistIps {
+			for _, ip := range newIPList {
 				newRule := &armstorage.IPRule{
 					Action:           &[]string{"Allow"}[0],
 					IPAddressOrRange: &[]string{ip}[0],
@@ -156,6 +178,7 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, allowIPList []st
 				newIpRuleSet = append(newIpRuleSet, []*armstorage.IPRule{newRule}...)
 
 			}
+
 			resource.Properties.NetworkRuleSet.IPRules = newIpRuleSet
 
 			resource.Properties.NetworkRuleSet.DefaultAction = &[]armstorage.DefaultAction{armstorage.DefaultActionDeny}[0]
