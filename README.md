@@ -1,10 +1,9 @@
-# azure-func-net-limit
+# Network Limiter for Azure PaaS
 
 ## ToDo
-* [] Add funcionality for VNet whitelistening
-* [] Check how it works for V1 Storage
-* [] Add posibility to get inputs from web
-* [] Develop Azure Function, which would trigger by timer and blob modification
+- [x] Check how it works for V1 Storage
+- [] Add posibility to get inputs from web
+- [] Develop Azure Function, which would trigger by timer and blob modification
 
 ## Related materials
 

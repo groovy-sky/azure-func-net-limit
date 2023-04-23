@@ -1,7 +1,6 @@
 package main
 
 import (
-	"azure-func-net-limit/netmerge"
 	"context"
 	"fmt"
 	"log"
@@ -9,6 +8,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"net-limit-azure-paas/netmerge"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"

@@ -1,4 +1,4 @@
-module github.com/groovy-sky/azure-func-net-limit/v2
+module github.com/groovy-sky/net-limit-azure-paas/v2
 
 go 1.18
 
