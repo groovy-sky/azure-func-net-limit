@@ -8,6 +8,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"io/ioutil"
+	"net/http"
 
 	"github.com/groovy-sky/net-limit-azure-paas/v2/netmerge"
 
@@ -129,8 +131,8 @@ func mergeIpLists(l1, l2 []string) []string {
 // Whitelist specified IP list for PaaS resource, based on resource type
 func SetPaasNet(cred azcore.TokenCredential, resourceId string, newIPList []string) (err error) {
 	var newIpRuleSet []*armstorage.IPRule
+	maxIpRules := 199 
 	// Takes as input resource id and tries to apply to it IP/VNet restrictions
-
 	if !validateResId(resourceId) {
 		return (fmt.Errorf("[ERR]: %s is malformed", resourceId))
 	}
@@ -161,9 +163,11 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, newIPList []stri
 		newIPList = mergeIpLists(newIPList, oldIPList)
 
 		if len(newIPList) > len(oldIPList) {
+			
+
 			fmt.Println("Before: ", newIPList)
-			for len(newIPList) > 10 {
-				newIPList, err = netmerge.MergeCIDRs(newIPList, 10)
+			for len(newIPList) > maxIpRules {
+				newIPList, err = netmerge.MergeCIDRs(newIPList, uint8(maxIpRules))
 				if err != nil {
 					return err
 				}
@@ -195,8 +199,28 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, newIPList []stri
 
 }
 
-func getInputParams() (resList, ipList string) {
+func getIpsFromWeb(url string) (out string, err error) {  
+	for _,link := range (strings.Split(url,";")){
+		resp, err := http.Get(link)  
+    if err != nil {  
+        return "", err  
+    }     
+	defer resp.Body.Close()  
+  
+    body, err := ioutil.ReadAll(resp.Body)  
+    if err != nil {  
+        return "", err  
+    } 
+	out += string(body)
+
+	}
+
+    return out, err  
+}  
+
 	// returns input data from CLI
+func getInputParams() (resList, ipList string) {
+	var urlList string 
 	app := &cli.App{
 		Name:                 "aznet",
 		Usage:                "CLI tool to set Azure PaaS network access",
@@ -219,15 +243,29 @@ func getInputParams() (resList, ipList string) {
 				Value:       "",
 				Usage:       "Allowed IPs",
 				Destination: &ipList,
-				Required:    true,
+			},
+			&cli.StringFlag{
+				Name:        "url",
+				Aliases:     []string{"u"},
+				Value:       "",
+				Usage:       "URL with allowed IPs",
+				Destination: &urlList,
 			},
 		},
 	}
 
 	err := app.Run(os.Args)
-	if err != nil {
+	if err != nil || len(urlList+ipList) ==0  {
 		log.Fatal("[ERR] Failed to get input:\n", err)
 	}
+	if strings.Contains(urlList,"https://") {
+		urlList,err = getIpsFromWeb(urlList)
+		if err != nil {
+			log.Fatal("[ERR] Failed to download IP lists:\n", err)
+		}
+		ipList = ipList + ";" + urlList
+	}
+	fmt.Println(urlList)
 
 	return resList, ipList
 
