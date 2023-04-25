@@ -21,12 +21,17 @@ import (
 )
 
 // Login to Azure, using different kind of methods - credentials, managed identity
-func azureLogin() (cred *azidentity.EnvironmentCredential, err error) {
-
-	cred, err = azidentity.NewEnvironmentCredential(nil)
-	if err != nil {
-		return cred, err
+func azureLogin() (cred *azidentity.ChainedTokenCredential, err error) {
+	managedCred, _ := azidentity.NewManagedIdentityCredential(nil)
+	cliCred, _ := azidentity.NewAzureCLICredential(nil)
+	envCred, _ := azidentity.NewEnvironmentCredential(nil)
+	// If connection to 169.254.169.254 - skip Managed Identity Credentials 
+	if _, tcpErr := net.Dial("tcp", "169.254.169.254:80") ; tcpErr != nil{
+        cred, err = azidentity.NewChainedTokenCredential([]azcore.TokenCredential{ cliCred, envCred}, nil)
+    } else {
+		cred, err = azidentity.NewChainedTokenCredential([]azcore.TokenCredential{managedCred, cliCred, envCred}, nil)
 	}
+	
 	return cred, err
 }
 
