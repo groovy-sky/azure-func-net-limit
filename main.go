@@ -136,7 +136,7 @@ func mergeIpLists(l1, l2 []string) []string {
 // Whitelist specified IP list for PaaS resource, based on resource type
 func SetPaasNet(cred azcore.TokenCredential, resourceId string, newIPList []string) (err error) {
 	var newIpRuleSet []*armstorage.IPRule
-	maxIpRules := 199 
+	maxIpRules := 200 
 	// Takes as input resource id and tries to apply to it IP/VNet restrictions
 	if !validateResId(resourceId) {
 		return (fmt.Errorf("[ERR]: %s is malformed", resourceId))
@@ -168,16 +168,13 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, newIPList []stri
 		newIPList = mergeIpLists(newIPList, oldIPList)
 
 		if len(newIPList) > len(oldIPList) {
-			
 
-			fmt.Println("Before: ", newIPList)
 			for len(newIPList) > maxIpRules {
 				newIPList, err = netmerge.MergeCIDRs(newIPList, uint8(maxIpRules))
 				if err != nil {
 					return err
 				}
 			}
-			fmt.Println("After: ", newIPList)
 
 			for _, ip := range newIPList {
 				newRule := &armstorage.IPRule{
@@ -204,6 +201,7 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, newIPList []stri
 
 }
 
+// Downloads file from one/multiple https:// files
 func getIpsFromWeb(url string) (out string, err error) {  
 	for _,link := range (strings.Split(url,";")){
 		resp, err := http.Get(link)  
@@ -223,7 +221,7 @@ func getIpsFromWeb(url string) (out string, err error) {
     return out, err  
 }  
 
-	// returns input data from CLI
+// returns input data from CLI
 func getInputParams() (resList, ipList string) {
 	var urlList string 
 	app := &cli.App{
@@ -270,7 +268,6 @@ func getInputParams() (resList, ipList string) {
 		}
 		ipList = ipList + ";" + urlList
 	}
-	fmt.Println(urlList)
 
 	return resList, ipList
 
@@ -278,12 +275,12 @@ func getInputParams() (resList, ipList string) {
 
 func main() {
 
-	res, ips := getInputParams()
+	inputPaas, inputIps := getInputParams()
 
 	login, err := azureLogin()
 	if err != nil {
 		log.Fatal("[ERR] Failed to login:\n", err)
 	}
-	fmt.Println(SetPaasNet(login, res, parseIPaddr(ips)))
+	fmt.Println(SetPaasNet(login, inputPaas, parseIPaddr(inputIps)))
 
 }
