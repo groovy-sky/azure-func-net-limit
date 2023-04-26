@@ -281,6 +281,7 @@ func main() {
 	if err != nil {
 		log.Fatal("[ERR] Failed to login:\n", err)
 	}
-	fmt.Println(SetPaasNet(login, inputPaas, parseIPaddr(inputIps)))
-
+	for _,paas := range strings.Split(inputPaas,";"){
+		fmt.Println(SetPaasNet(login, paas, parseIPaddr(inputIps)))
+	}
 }
