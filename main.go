@@ -10,6 +10,7 @@ import (
 	"strings"
 	"io/ioutil"
 	"net/http"
+	"sync"
 
 	"github.com/groovy-sky/net-limit-azure-paas/v2/netmerge"
 
@@ -259,12 +260,12 @@ func getInputParams() (resList, ipList string) {
 
 	err := app.Run(os.Args)
 	if err != nil || len(urlList+ipList) ==0  {
-		log.Fatal("[ERR] Failed to get input:\n", err)
+		log.Fatal("[ERR] : Failed to get input:\n", err)
 	}
 	if strings.Contains(urlList,"https://") {
 		urlList,err = getIpsFromWeb(urlList)
 		if err != nil {
-			log.Fatal("[ERR] Failed to download IP lists:\n", err)
+			log.Fatal("[ERR] : Failed to download IP lists:\n", err)
 		}
 		ipList = ipList + ";" + urlList
 	}
@@ -274,14 +275,40 @@ func getInputParams() (resList, ipList string) {
 }
 
 func main() {
+	// create a wait group to synchronize goroutines  
+	var wg sync.WaitGroup 
+
+	// create a channel to send and receive data  
+	ch := make(chan string)  
 
 	inputPaas, inputIps := getInputParams()
 
 	login, err := azureLogin()
 	if err != nil {
-		log.Fatal("[ERR] Failed to login:\n", err)
+		log.Fatal("[ERR] : Failed to login:\n", err)
 	}
 	for _,paas := range strings.Split(inputPaas,";"){
-		fmt.Println(SetPaasNet(login, paas, parseIPaddr(inputIps)))
+		wg.Add(1)
+
+		go func(paas string) {  
+			defer wg.Done() // notify the wait group when the goroutine is done  
+			err := SetPaasNet(login, paas, parseIPaddr(inputIps))
+			if err != nil {  
+				ch <- fmt.Sprintf("[ERR] : %s failed with following message\n    %v", paas, err)  
+				return  
+			}  
+			ch <- fmt.Sprintf("[INF] : %s configured", paas)  
+		}(paas)  
 	}
+
+		// wait for all goroutines to finish  
+		go func() {  
+			wg.Wait()  
+			close(ch)  
+		}() 	
+
+			// receive results from the channel  
+	for result := range ch {  
+		fmt.Println(result)  
+	}  
 }
