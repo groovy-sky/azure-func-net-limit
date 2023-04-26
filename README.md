@@ -2,6 +2,8 @@
 
 ## Overview
 
+![](/logo.svg)
+
 Network Limiter for Azure PaaS is CLI tool, written on Golang, that limits network access to Azure PaaS (Platform-as-a-Service) instances. Under the hood it uses [Azure Go SDK](https://github.com/Azure/azure-sdk-for-go).
 
 ## Quick start
