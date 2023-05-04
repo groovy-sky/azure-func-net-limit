@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
-	"io/ioutil"
-	"net/http"
 	"sync"
 
 	"github.com/groovy-sky/net-limit-azure-paas/v2/netmerge"
@@ -21,18 +21,25 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+type InputArguments struct {
+	AllowedIps   *[]string
+	Append       *bool
+	ServicesList *[]string
+	RestrictMode *bool
+}
+
 // Login to Azure, using different kind of methods - credentials, managed identity
 func azureLogin() (cred *azidentity.ChainedTokenCredential, err error) {
 	managedCred, _ := azidentity.NewManagedIdentityCredential(nil)
 	cliCred, _ := azidentity.NewAzureCLICredential(nil)
 	envCred, _ := azidentity.NewEnvironmentCredential(nil)
-	// If connection to 169.254.169.254 - skip Managed Identity Credentials 
-	if _, tcpErr := net.Dial("tcp", "169.254.169.254:80") ; tcpErr != nil{
-        cred, err = azidentity.NewChainedTokenCredential([]azcore.TokenCredential{ cliCred, envCred}, nil)
-    } else {
+	// If connection to 169.254.169.254 - skip Managed Identity Credentials
+	if _, tcpErr := net.Dial("tcp", "169.254.169.254:80"); tcpErr != nil {
+		cred, err = azidentity.NewChainedTokenCredential([]azcore.TokenCredential{cliCred, envCred}, nil)
+	} else {
 		cred, err = azidentity.NewChainedTokenCredential([]azcore.TokenCredential{managedCred, cliCred, envCred}, nil)
 	}
-	
+
 	return cred, err
 }
 
@@ -137,7 +144,7 @@ func mergeIpLists(l1, l2 []string) []string {
 // Whitelist specified IP list for PaaS resource, based on resource type
 func SetPaasNet(cred azcore.TokenCredential, resourceId string, newIPList []string) (err error) {
 	var newIpRuleSet []*armstorage.IPRule
-	maxIpRules := 200 
+	maxIpRules := 200
 	// Takes as input resource id and tries to apply to it IP/VNet restrictions
 	if !validateResId(resourceId) {
 		return (fmt.Errorf("[ERR]: %s is malformed", resourceId))
@@ -190,11 +197,10 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, newIPList []stri
 
 			resource.Properties.NetworkRuleSet.DefaultAction = &[]armstorage.DefaultAction{armstorage.DefaultActionDeny}[0]
 
-			response, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{NetworkRuleSet: resource.Properties.NetworkRuleSet}}, nil)
+			_, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{NetworkRuleSet: resource.Properties.NetworkRuleSet}}, nil)
 			if err != nil {
 				return err
 			}
-			fmt.Println(response)
 		}
 
 	}
@@ -203,46 +209,46 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, newIPList []stri
 }
 
 // Downloads file from one/multiple https:// files
-func getIpsFromWeb(url string) (out string, err error) {  
-	for _,link := range (strings.Split(url,";")){
-		resp, err := http.Get(link)  
-    if err != nil {  
-        return "", err  
-    }     
-	defer resp.Body.Close()  
-  
-    body, err := ioutil.ReadAll(resp.Body)  
-    if err != nil {  
-        return "", err  
-    } 
-	out += string(body)
+func getIpsFromWeb(url string) (out string, err error) {
+	for _, link := range strings.Split(url, ";") {
+		resp, err := http.Get(link)
+		if err != nil {
+			return "", err
+		}
+		defer resp.Body.Close()
+
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return "", err
+		}
+		out += strings.ReplaceAll(string(body), "/32", "")
 
 	}
 
-    return out, err  
-}  
+	return out, err
+}
 
 // returns input data from CLI
-func getInputParams() (resList, ipList string) {
-	var urlList string 
+func (in *InputArguments) getInputParams() (err error) {
+	var servicesList, ipList, urlList string
 	app := &cli.App{
-		Name:                 "aznet",
-		Usage:                "CLI tool to set Azure PaaS network access",
+		Name:                 "nlap",
+		Usage:                "CLI tool to configure Azure PaaS network access",
 		EnableBashCompletion: true,
 		Action: func(c *cli.Context) error {
 			return nil
 		},
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:        "source",
+				Name:        "service",
 				Aliases:     []string{"s"},
 				Value:       "",
 				Usage:       "PaaS resources list",
-				Destination: &resList,
+				Destination: &servicesList,
 				Required:    true,
 			},
 			&cli.StringFlag{
-				Name:        "ips",
+				Name:        "ip",
 				Aliases:     []string{"i"},
 				Value:       "",
 				Usage:       "Allowed IPs",
@@ -258,57 +264,63 @@ func getInputParams() (resList, ipList string) {
 		},
 	}
 
-	err := app.Run(os.Args)
-	if err != nil || len(urlList+ipList) ==0  {
+	err = app.Run(os.Args)
+	if err != nil || len(urlList+ipList) == 0 {
 		log.Fatal("[ERR] : Failed to get input:\n", err)
 	}
-	if strings.Contains(urlList,"https://") {
-		urlList,err = getIpsFromWeb(urlList)
+	if strings.Contains(urlList, "https://") {
+		urlList, err = getIpsFromWeb(urlList)
 		if err != nil {
 			log.Fatal("[ERR] : Failed to download IP lists:\n", err)
 		}
 		ipList = ipList + ";" + urlList
 	}
+	ips := parseIPaddr(ipList)
+	services := strings.Split(servicesList, ";")
 
-	return resList, ipList
+	in.AllowedIps = &ips
+	in.ServicesList = &services
+
+	return err
 
 }
 
 func main() {
-	// create a wait group to synchronize goroutines  
-	var wg sync.WaitGroup 
+	// create a wait group to synchronize goroutines
+	var wg sync.WaitGroup
+	var in InputArguments
 
-	// create a channel to send and receive data  
-	ch := make(chan string)  
+	// create a channel to send and receive data
+	ch := make(chan string)
 
-	inputPaas, inputIps := getInputParams()
+	in.getInputParams()
 
 	login, err := azureLogin()
 	if err != nil {
 		log.Fatal("[ERR] : Failed to login:\n", err)
 	}
-	for _,paas := range strings.Split(inputPaas,";"){
+	for _, paas := range *in.ServicesList {
 		wg.Add(1)
 
-		go func(paas string) {  
-			defer wg.Done() // notify the wait group when the goroutine is done  
-			err := SetPaasNet(login, paas, parseIPaddr(inputIps))
-			if err != nil {  
-				ch <- fmt.Sprintf("[ERR] : %s failed with following message\n    %v", paas, err)  
-				return  
-			}  
-			ch <- fmt.Sprintf("[INF] : %s configured", paas)  
-		}(paas)  
+		go func(paas string) {
+			defer wg.Done() // notify the wait group when the goroutine is done
+			err := SetPaasNet(login, paas, *in.AllowedIps)
+			if err != nil {
+				ch <- fmt.Sprintf("[ERR] : %s failed with following message\n    %v", paas, err)
+				return
+			}
+			ch <- fmt.Sprintf("[INF] : %s configured", paas)
+		}(paas)
 	}
 
-		// wait for all goroutines to finish  
-		go func() {  
-			wg.Wait()  
-			close(ch)  
-		}() 	
+	// wait for all goroutines to finish
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
 
-			// receive results from the channel  
-	for result := range ch {  
-		fmt.Println(result)  
-	}  
+	// receive results from the channel
+	for result := range ch {
+		fmt.Println(result)
+	}
 }
