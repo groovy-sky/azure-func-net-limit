@@ -22,10 +22,10 @@ import (
 )
 
 type InputArguments struct {
-	AllowedIps   *[]string
-	ForceApply   *bool
-	ServicesList *[]string
-	RestrictMode *bool
+	AllowedIps       *[]string
+	ForcedApply      *bool
+	ServicesList     *[]string
+	EnhancedSecurity *bool
 }
 
 // Login to Azure, using different kind of methods - credentials, managed identity
@@ -172,13 +172,13 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, in *InputArgumen
 			oldIPList = append(oldIPList, *ipRule.IPAddressOrRange)
 		}
 
-		if *in.ForceApply {
+		if *in.ForcedApply {
 			newIPList = *in.AllowedIps
 		} else {
 			newIPList = mergeIpLists(*in.AllowedIps, oldIPList)
 		}
 
-		if len(newIPList) > len(oldIPList) || *in.ForceApply {
+		if len(newIPList) > len(oldIPList) || *in.ForcedApply || *in.EnhancedSecurity {
 
 			for len(newIPList) > maxIpRules {
 				newIPList, err = netmerge.MergeCIDRs(newIPList, uint8(maxIpRules))
@@ -196,11 +196,20 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, in *InputArgumen
 
 			}
 
+			// Set allowed IPs
 			resource.Properties.NetworkRuleSet.IPRules = newIpRuleSet
 
+			// Disable public access
 			resource.Properties.NetworkRuleSet.DefaultAction = &[]armstorage.DefaultAction{armstorage.DefaultActionDeny}[0]
 
-			_, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{NetworkRuleSet: resource.Properties.NetworkRuleSet}}, nil)
+			if *in.EnhancedSecurity {
+				resource.Properties.AllowBlobPublicAccess = &[]bool{false}[0]
+				resource.Properties.MinimumTLSVersion = &[]armstorage.MinimumTLSVersion{armstorage.MinimumTLSVersionTLS12}[0]
+				resource.Properties.EnableHTTPSTrafficOnly = &[]bool{true}[0]
+				resource.Properties.IsSftpEnabled = &[]bool{true}[0]
+			}
+
+			_, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{NetworkRuleSet: resource.Properties.NetworkRuleSet, AllowBlobPublicAccess: resource.Properties.AllowBlobPublicAccess}}, nil)
 			if err != nil {
 				return err
 			}
@@ -234,7 +243,7 @@ func getIpsFromWeb(url string) (out string, err error) {
 // returns input data from CLI
 func (in *InputArguments) getInputParams() (err error) {
 	var servicesList, ipList, urlList string
-	var forceFlag bool
+	var forceFlag, securityFlag bool
 	app := &cli.App{
 		Name:                 "nlap",
 		Usage:                "CLI tool to configure Azure PaaS network access",
@@ -270,6 +279,11 @@ func (in *InputArguments) getInputParams() (err error) {
 				Aliases:     []string{"f"},
 				Usage:       "Overtwrite Network rules",
 				Destination: &forceFlag,
+			}, &cli.BoolFlag{
+				Name:        "enhanced",
+				Aliases:     []string{"e"},
+				Usage:       "Enhanced Security",
+				Destination: &securityFlag,
 			},
 		},
 	}
@@ -290,7 +304,8 @@ func (in *InputArguments) getInputParams() (err error) {
 
 	in.AllowedIps = &ips
 	in.ServicesList = &services
-	in.ForceApply = &forceFlag
+	in.ForcedApply = &forceFlag
+	in.EnhancedSecurity = &securityFlag
 
 	return err
 
