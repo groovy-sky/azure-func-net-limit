@@ -23,7 +23,7 @@ import (
 
 type InputArguments struct {
 	AllowedIps   *[]string
-	Append       *bool
+	ForceApply   *bool
 	ServicesList *[]string
 	RestrictMode *bool
 }
@@ -142,8 +142,9 @@ func mergeIpLists(l1, l2 []string) []string {
 }
 
 // Whitelist specified IP list for PaaS resource, based on resource type
-func SetPaasNet(cred azcore.TokenCredential, resourceId string, newIPList []string) (err error) {
+func SetPaasNet(cred azcore.TokenCredential, resourceId string, in *InputArguments) (err error) {
 	var newIpRuleSet []*armstorage.IPRule
+	var newIPList, oldIPList []string
 	maxIpRules := 200
 	// Takes as input resource id and tries to apply to it IP/VNet restrictions
 	if !validateResId(resourceId) {
@@ -167,15 +168,17 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, newIPList []stri
 			return (fmt.Errorf("[ERR]: Couldn't get properties of %s\n%e", resourceName, err))
 		}
 
-		var oldIPList []string
-
 		for _, ipRule := range resource.Properties.NetworkRuleSet.IPRules {
 			oldIPList = append(oldIPList, *ipRule.IPAddressOrRange)
 		}
 
-		newIPList = mergeIpLists(newIPList, oldIPList)
+		if *in.ForceApply {
+			newIPList = *in.AllowedIps
+		} else {
+			newIPList = mergeIpLists(*in.AllowedIps, oldIPList)
+		}
 
-		if len(newIPList) > len(oldIPList) {
+		if len(newIPList) > len(oldIPList) || *in.ForceApply {
 
 			for len(newIPList) > maxIpRules {
 				newIPList, err = netmerge.MergeCIDRs(newIPList, uint8(maxIpRules))
@@ -231,6 +234,7 @@ func getIpsFromWeb(url string) (out string, err error) {
 // returns input data from CLI
 func (in *InputArguments) getInputParams() (err error) {
 	var servicesList, ipList, urlList string
+	var forceFlag bool
 	app := &cli.App{
 		Name:                 "nlap",
 		Usage:                "CLI tool to configure Azure PaaS network access",
@@ -261,6 +265,12 @@ func (in *InputArguments) getInputParams() (err error) {
 				Usage:       "URL with allowed IPs",
 				Destination: &urlList,
 			},
+			&cli.BoolFlag{
+				Name:        "force",
+				Aliases:     []string{"f"},
+				Usage:       "Overtwrite Network rules",
+				Destination: &forceFlag,
+			},
 		},
 	}
 
@@ -280,6 +290,7 @@ func (in *InputArguments) getInputParams() (err error) {
 
 	in.AllowedIps = &ips
 	in.ServicesList = &services
+	in.ForceApply = &forceFlag
 
 	return err
 
@@ -288,13 +299,18 @@ func (in *InputArguments) getInputParams() (err error) {
 func main() {
 	// create a wait group to synchronize goroutines
 	var wg sync.WaitGroup
-	var in InputArguments
+	var in *InputArguments
+
+	// initiate input var
+	in = new(InputArguments)
 
 	// create a channel to send and receive data
 	ch := make(chan string)
 
+	// obtains input values
 	in.getInputParams()
 
+	// login to Azure
 	login, err := azureLogin()
 	if err != nil {
 		log.Fatal("[ERR] : Failed to login:\n", err)
@@ -304,7 +320,7 @@ func main() {
 
 		go func(paas string) {
 			defer wg.Done() // notify the wait group when the goroutine is done
-			err := SetPaasNet(login, paas, *in.AllowedIps)
+			err := SetPaasNet(login, paas, in)
 			if err != nil {
 				ch <- fmt.Sprintf("[ERR] : %s failed with following message\n    %v", paas, err)
 				return
