@@ -7,18 +7,15 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
 
-	"github.com/groovy-sky/net-limit-azure-paas/v2/netmerge"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
-
-	"github.com/urfave/cli/v2"
+	"github.com/alecthomas/kong"
+	"github.com/groovy-sky/net-limit-azure-paas/v2/netmerge"
 )
 
 type InputArguments struct {
@@ -195,7 +192,7 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, in *InputArgumen
 				newIpRuleSet = append(newIpRuleSet, []*armstorage.IPRule{newRule}...)
 
 			}
-
+			fmt.Println(newIpRuleSet)
 			// Set allowed IPs
 			resource.Properties.NetworkRuleSet.IPRules = newIpRuleSet
 
@@ -241,70 +238,38 @@ func getIpsFromWeb(url string) (out string, err error) {
 
 // returns input data from CLI
 func (in *InputArguments) getInputParams() (err error) {
-	var servicesList, ipList, urlList string
-	var forceFlag, securityFlag bool
-	app := &cli.App{
-		Name:                 "nlap",
-		Usage:                "CLI tool to configure Azure PaaS network access",
-		EnableBashCompletion: true,
-		Action: func(c *cli.Context) error {
-			return nil
-		},
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:        "service",
-				Aliases:     []string{"s"},
-				Value:       "",
-				Usage:       "PaaS resources list",
-				Destination: &servicesList,
-				Required:    true,
-			},
-			&cli.StringFlag{
-				Name:        "ip",
-				Aliases:     []string{"i"},
-				Value:       "",
-				Usage:       "Allowed IPs",
-				Destination: &ipList,
-			},
-			&cli.StringFlag{
-				Name:        "url",
-				Aliases:     []string{"u"},
-				Value:       "",
-				Usage:       "URL with allowed IPs",
-				Destination: &urlList,
-			},
-			&cli.BoolFlag{
-				Name:        "force",
-				Aliases:     []string{"f"},
-				Usage:       "Overtwrite Network rules",
-				Destination: &forceFlag,
-			}, &cli.BoolFlag{
-				Name:        "enhanced",
-				Aliases:     []string{"e"},
-				Usage:       "Enhanced Security",
-				Destination: &securityFlag,
-			},
-		},
+	type CLI struct {
+		Set struct {
+			ServicesList string `name:"services" short:"s" help:"List of services"`
+			IPList       string `name:"ips" short:"i" help:"List of IP addresses"`
+			URLList      string `name:"urls" short:"u" help:"List of URLs"`
+			ForceFlag    bool   `name:"force" short:"f" help:"Force"`
+			SecurityFlag bool   `name:"enhanced" short:"e" help:"Enhanced security"`
+		} `cmd:"" help:"set network configuration"`
 	}
 
-	err = app.Run(os.Args)
-	if err != nil || len(urlList+ipList) == 0 {
+	cli := CLI{}
+	ctx := kong.Parse(&cli, kong.Name("nlap"), kong.Description("A CLI tool for NLP tasks"))
+
+	ctx.Command()
+
+	if err != nil || len(cli.Set.URLList+cli.Set.IPList) == 0 {
 		log.Fatal("[ERR] : Failed to get input:\n", err)
 	}
-	if strings.Contains(urlList, "https://") {
-		urlList, err = getIpsFromWeb(urlList)
+	if strings.Contains(cli.Set.URLList, "https://") {
+		cli.Set.URLList, err = getIpsFromWeb(cli.Set.URLList)
 		if err != nil {
 			log.Fatal("[ERR] : Failed to download IP lists:\n", err)
 		}
-		ipList = ipList + ";" + urlList
+		cli.Set.IPList = cli.Set.IPList + ";" + cli.Set.URLList
 	}
-	ips := parseIPaddr(ipList)
-	services := strings.Split(servicesList, ";")
+	ips := parseIPaddr(cli.Set.IPList)
+	services := strings.Split(cli.Set.ServicesList, ";")
 
 	in.AllowedIps = &ips
 	in.ServicesList = &services
-	in.ForcedApply = &forceFlag
-	in.EnhancedSecurity = &securityFlag
+	in.ForcedApply = &cli.Set.ForceFlag
+	in.EnhancedSecurity = &cli.Set.SecurityFlag
 
 	return err
 
