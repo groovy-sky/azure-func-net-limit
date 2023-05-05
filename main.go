@@ -86,6 +86,9 @@ func parseIPaddr(ips string) (result []string) {
 	ips = strings.ReplaceAll(ips, "\n", ";")
 	for _, ip := range strings.Split(ips, ";") {
 		if validateIPaddr(ip) {
+			// Update IP due to Azure specific - no addresses with /32 and /31 are allowed
+			ip = strings.ReplaceAll(ip, "/32", "")
+			ip = strings.ReplaceAll(ip, "/31", "/30")
 			result = append(result, ip)
 		}
 	}
