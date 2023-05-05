@@ -206,10 +206,9 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, in *InputArgumen
 				resource.Properties.AllowBlobPublicAccess = &[]bool{false}[0]
 				resource.Properties.MinimumTLSVersion = &[]armstorage.MinimumTLSVersion{armstorage.MinimumTLSVersionTLS12}[0]
 				resource.Properties.EnableHTTPSTrafficOnly = &[]bool{true}[0]
-				resource.Properties.IsSftpEnabled = &[]bool{true}[0]
 			}
 
-			_, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{NetworkRuleSet: resource.Properties.NetworkRuleSet, AllowBlobPublicAccess: resource.Properties.AllowBlobPublicAccess}}, nil)
+			_, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{NetworkRuleSet: resource.Properties.NetworkRuleSet, AllowBlobPublicAccess: resource.Properties.AllowBlobPublicAccess, MinimumTLSVersion: resource.Properties.MinimumTLSVersion, EnableHTTPSTrafficOnly: resource.Properties.EnableHTTPSTrafficOnly}}, nil)
 			if err != nil {
 				return err
 			}
