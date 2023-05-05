@@ -192,7 +192,6 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, in *InputArgumen
 				newIpRuleSet = append(newIpRuleSet, []*armstorage.IPRule{newRule}...)
 
 			}
-			fmt.Println(newIpRuleSet)
 			// Set allowed IPs
 			resource.Properties.NetworkRuleSet.IPRules = newIpRuleSet
 
@@ -243,7 +242,7 @@ func (in *InputArguments) getInputParams() (err error) {
 			ServicesList string `name:"services" short:"s" help:"List of services"`
 			IPList       string `name:"ips" short:"i" help:"List of IP addresses"`
 			URLList      string `name:"urls" short:"u" help:"List of URLs"`
-			ForceFlag    bool   `name:"force" short:"f" help:"Force"`
+			ForceFlag    bool   `name:"force" short:"f" help:"Rewrite existing IP rules"`
 			SecurityFlag bool   `name:"enhanced" short:"e" help:"Enhanced security"`
 		} `cmd:"" help:"set network configuration"`
 	}

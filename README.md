@@ -15,6 +15,7 @@ Network Limiter for Azure PaaS is CLI tool, written on Golang, that limits netwo
 - [x] Implement goroutine for parallel exec
 - [x] Implement force
 - [] Implement secure mode - force use https only, denies public access etc.
+- [x] Change CLI lib
 
 ## Related materials
 
