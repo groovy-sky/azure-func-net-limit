@@ -23,6 +23,7 @@ type InputArguments struct {
 	ForcedApply      *bool
 	ServicesList     *[]string
 	EnhancedSecurity *bool
+	PrivateOnly      *bool
 }
 
 // Login to Azure, using different kind of methods - credentials, managed identity
@@ -157,28 +158,36 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, in *InputArgumen
 	case "Microsoft.Storage/storageAccounts":
 		ctx := context.Background()
 
+		// Trying to access storage account using prived credentials
 		storageAccountsClient, err := armstorage.NewAccountsClient(subscriptionID, cred, nil)
 
 		if err != nil {
 			return (fmt.Errorf("[ERR]: Couldn't access %s\n%e", resourceName, err))
 		}
 
+		// Trying to read existing properties
 		resource, err := storageAccountsClient.GetProperties(ctx, resourceGroupName, resourceName, &armstorage.AccountsClientGetPropertiesOptions{Expand: nil})
 		if err != nil {
 			return (fmt.Errorf("[ERR]: Couldn't get properties of %s\n%e", resourceName, err))
 		}
 
+		// Storing old IP rules
 		for _, ipRule := range resource.Properties.NetworkRuleSet.IPRules {
 			oldIPList = append(oldIPList, *ipRule.IPAddressOrRange)
 		}
 
+		// If Force flag enabled - apply only provided IPs
 		if *in.ForcedApply {
 			newIPList = *in.AllowedIps
+			oldIPList = []string{}
 		} else {
 			newIPList = mergeIpLists(*in.AllowedIps, oldIPList)
 		}
 
-		if len(newIPList) > len(oldIPList) || *in.ForcedApply || *in.EnhancedSecurity {
+		switch {
+
+		// Check that new IP rules appears
+		case len(newIPList) > len(oldIPList):
 
 			for len(newIPList) > maxIpRules {
 				newIPList, err = netmerge.MergeCIDRs(newIPList, uint8(maxIpRules))
@@ -201,16 +210,29 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, in *InputArgumen
 			// Disable public access
 			resource.Properties.NetworkRuleSet.DefaultAction = &[]armstorage.DefaultAction{armstorage.DefaultActionDeny}[0]
 
-			if *in.EnhancedSecurity {
-				resource.Properties.AllowBlobPublicAccess = &[]bool{false}[0]
-				resource.Properties.MinimumTLSVersion = &[]armstorage.MinimumTLSVersion{armstorage.MinimumTLSVersionTLS12}[0]
-				resource.Properties.EnableHTTPSTrafficOnly = &[]bool{true}[0]
-			}
-
-			_, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{NetworkRuleSet: resource.Properties.NetworkRuleSet, AllowBlobPublicAccess: resource.Properties.AllowBlobPublicAccess, MinimumTLSVersion: resource.Properties.MinimumTLSVersion, EnableHTTPSTrafficOnly: resource.Properties.EnableHTTPSTrafficOnly}}, nil)
+			_, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{NetworkRuleSet: resource.Properties.NetworkRuleSet}}, nil)
 			if err != nil {
 				return err
 			}
+
+		// Enhance Security if needed
+		case *in.EnhancedSecurity:
+			resource.Properties.AllowBlobPublicAccess = &[]bool{false}[0]
+			resource.Properties.MinimumTLSVersion = &[]armstorage.MinimumTLSVersion{armstorage.MinimumTLSVersionTLS12}[0]
+			resource.Properties.EnableHTTPSTrafficOnly = &[]bool{true}[0]
+			_, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{AllowBlobPublicAccess: resource.Properties.AllowBlobPublicAccess, MinimumTLSVersion: resource.Properties.MinimumTLSVersion, EnableHTTPSTrafficOnly: resource.Properties.EnableHTTPSTrafficOnly}}, nil)
+			if err != nil {
+				return err
+			}
+
+		// Turn public access off
+		case *in.PrivateOnly:
+			resource.Properties.PublicNetworkAccess = &[]armstorage.PublicNetworkAccess{armstorage.PublicNetworkAccessDisabled}[0]
+			_, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{PublicNetworkAccess: resource.Properties.PublicNetworkAccess}}, nil)
+			if err != nil {
+				return err
+			}
+
 		}
 
 	}
@@ -251,27 +273,38 @@ func (in *InputArguments) getInputParams() (err error) {
 	}
 
 	cli := CLI{}
-	ctx := kong.Parse(&cli, kong.Name("nlap"), kong.Description("A CLI tool for NLP tasks"))
+	ctx := kong.Parse(&cli, kong.Name("NLAP"), kong.Description("CLI tool for limiting access to Azure PaaS"))
 
-	ctx.Command()
-
-	if err != nil || len(cli.Set.URLList+cli.Set.IPList) == 0 {
-		log.Fatal("[ERR] : Failed to get input:\n", err)
-	}
-	if strings.Contains(cli.Set.URLList, "https://") {
-		cli.Set.URLList, err = getIpsFromWeb(cli.Set.URLList)
-		if err != nil {
-			log.Fatal("[ERR] : Failed to download IP lists:\n", err)
+	switch ctx.Command() {
+	case "set":
+		if len(cli.Set.URLList+cli.Set.IPList) == 0 && !cli.Set.ForceFlag {
+			log.Fatal("[ERR] : Failed to get input:\n", err)
 		}
-		cli.Set.IPList = cli.Set.IPList + ";" + cli.Set.URLList
-	}
-	ips := parseIPaddr(cli.Set.IPList)
-	services := strings.Split(cli.Set.ServicesList, ";")
 
-	in.AllowedIps = &ips
-	in.ServicesList = &services
-	in.ForcedApply = &cli.Set.ForceFlag
-	in.EnhancedSecurity = &cli.Set.SecurityFlag
+		if strings.Contains(cli.Set.URLList, "https://") {
+			cli.Set.URLList, err = getIpsFromWeb(cli.Set.URLList)
+			if err != nil {
+				log.Fatal("[ERR] : Failed to download IP lists:\n", err)
+			}
+			cli.Set.IPList = cli.Set.IPList + ";" + cli.Set.URLList
+		}
+		ips := parseIPaddr(cli.Set.IPList)
+		services := strings.Split(cli.Set.ServicesList, ";")
+
+		if len(ips) == 0 && cli.Set.ForceFlag {
+			in.PrivateOnly = &[]bool{true}[0]
+			in.ForcedApply = &[]bool{false}[0]
+		} else {
+			in.ForcedApply = &[]bool{true}[0]
+			in.PrivateOnly = &[]bool{false}[0]
+		}
+
+		in.AllowedIps = &ips
+		in.ServicesList = &services
+		in.EnhancedSecurity = &cli.Set.SecurityFlag
+	default:
+		err = fmt.Errorf("[ERR] : Command not found")
+	}
 
 	return err
 
