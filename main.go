@@ -15,7 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 	"github.com/alecthomas/kong"
-	"github.com/groovy-sky/net-limit-azure-paas/v2/netmerge"
+	"github.com/groovy-sky/nlap/v2/netmerge"
 )
 
 type InputArguments struct {
