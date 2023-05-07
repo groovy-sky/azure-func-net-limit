@@ -275,7 +275,7 @@ func (in *InputArguments) getInputParams() (err error) {
 	}
 
 	cli := CLI{}
-	ctx := kong.Parse(&cli, kong.Name("NLAP"), kong.Description("CLI tool for limiting access to Azure PaaS"))
+	ctx := kong.Parse(&cli, kong.Name("NLAP"), kong.Description("CLI tool for configuring Azure PaaS network access"))
 
 	switch ctx.Command() {
 	case "set":
