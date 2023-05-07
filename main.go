@@ -207,25 +207,27 @@ func SetPaasNet(cred azcore.TokenCredential, resourceId string, in *InputArgumen
 			// Set allowed IPs
 			resource.Properties.NetworkRuleSet.IPRules = newIpRuleSet
 
-			// Disable public access
+			// Disable full access and limit to certain IPs
 			resource.Properties.NetworkRuleSet.DefaultAction = &[]armstorage.DefaultAction{armstorage.DefaultActionDeny}[0]
+			resource.Properties.PublicNetworkAccess = &[]armstorage.PublicNetworkAccess{armstorage.PublicNetworkAccessEnabled}[0]
 
-			_, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{NetworkRuleSet: resource.Properties.NetworkRuleSet}}, nil)
+			_, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{NetworkRuleSet: resource.Properties.NetworkRuleSet, PublicNetworkAccess: resource.Properties.PublicNetworkAccess}}, nil)
 			if err != nil {
 				return err
 			}
 
 		// Enhance Security if needed
 		case *in.EnhancedSecurity:
+			resource.Properties.PublicNetworkAccess = &[]armstorage.PublicNetworkAccess{armstorage.PublicNetworkAccessEnabled}[0]
 			resource.Properties.AllowBlobPublicAccess = &[]bool{false}[0]
 			resource.Properties.MinimumTLSVersion = &[]armstorage.MinimumTLSVersion{armstorage.MinimumTLSVersionTLS12}[0]
 			resource.Properties.EnableHTTPSTrafficOnly = &[]bool{true}[0]
-			_, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{AllowBlobPublicAccess: resource.Properties.AllowBlobPublicAccess, MinimumTLSVersion: resource.Properties.MinimumTLSVersion, EnableHTTPSTrafficOnly: resource.Properties.EnableHTTPSTrafficOnly}}, nil)
+			_, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{AllowBlobPublicAccess: resource.Properties.AllowBlobPublicAccess, MinimumTLSVersion: resource.Properties.MinimumTLSVersion, EnableHTTPSTrafficOnly: resource.Properties.EnableHTTPSTrafficOnly, PublicNetworkAccess: resource.Properties.PublicNetworkAccess}}, nil)
 			if err != nil {
 				return err
 			}
 
-		// Turn public access off
+		// Fully disable public access
 		case *in.PrivateOnly:
 			resource.Properties.PublicNetworkAccess = &[]armstorage.PublicNetworkAccess{armstorage.PublicNetworkAccessDisabled}[0]
 			_, err := storageAccountsClient.Update(ctx, resourceGroupName, resourceName, armstorage.AccountUpdateParameters{Properties: &armstorage.AccountPropertiesUpdateParameters{PublicNetworkAccess: resource.Properties.PublicNetworkAccess}}, nil)
