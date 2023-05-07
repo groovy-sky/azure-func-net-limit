@@ -1,6 +1,6 @@
 module github.com/groovy-sky/nlap/v2
 
-go 1.20
+go 1.19
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.5.0
