@@ -13,10 +13,12 @@ Network Limiter for Azure PaaS (aka nlap) is CLI tool, written on Golang, that l
 To build from scratch you'll need Go >= 1.19. Open terminal and execute following command:
 
 ```
+export GOPATH="$HOME/go"
+PATH="$GOPATH/bin:$PATH"
 go install github.com/groovy-sky/nlap/v2@latest
 ```
 
-Another way how you can get this tool - check the latest version under [/releases](releases section)
+Another way how you can get this tool - check the latest version under [releases section](/releases)
 
 ### Examples
 
