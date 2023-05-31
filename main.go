@@ -18,12 +18,22 @@ import (
 	"github.com/groovy-sky/nlap/v2/netmerge"
 )
 
-type InputArguments struct {
+type Cmd struct {
+	Set     *CmdSetArg
+	Get     *CmdGetArg
+	Command *string
+}
+
+type CmdSetArg struct {
 	AllowedIps       *[]string
 	ForcedApply      *bool
 	ServicesList     *[]string
 	EnhancedSecurity *bool
 	PrivateOnly      *bool
+}
+
+type CmdGetArg struct {
+	ResourceType *string
 }
 
 // Login to Azure, using different kind of methods - credentials, managed identity
@@ -143,7 +153,7 @@ func mergeIpLists(l1, l2 []string) []string {
 }
 
 // Whitelist specified IP list for PaaS resource, based on resource type
-func SetPaasNet(cred azcore.TokenCredential, resourceId string, in *InputArguments) (err error) {
+func SetPaasNet(cred azcore.TokenCredential, resourceId string, in *CmdSetArg) (err error) {
 	var newIpRuleSet []*armstorage.IPRule
 	var newIPList, oldIPList []string
 	maxIpRules := 200
@@ -263,7 +273,7 @@ func getIpsFromWeb(url string) (out string, err error) {
 }
 
 // returns input data from CLI
-func (in *InputArguments) getInputParams() (err error) {
+func (in *Cmd) readInput() (err error) {
 	type CLI struct {
 		Set struct {
 			ServicesList string `name:"services" short:"s" help:"List of services"`
@@ -271,14 +281,20 @@ func (in *InputArguments) getInputParams() (err error) {
 			URLList      string `name:"urls" short:"u" help:"List of URLs"`
 			ForceFlag    bool   `name:"force" short:"f" help:"Rewrite existing IP rules"`
 			SecurityFlag bool   `name:"enhanced" short:"e" help:"Enhanced security"`
-		} `cmd:"" help:"set network configuration"`
+		} `cmd:"" help:"configures network access to PaaS"`
+		Get struct {
+			ResourceType string `name:"resource" short:"r" help:"Azure Resource Type"`
+		} `cmd:"" help:"configures network access to PaaS"`
 	}
 
 	cli := CLI{}
 	ctx := kong.Parse(&cli, kong.Name("NLAP"), kong.Description("CLI tool for configuring Azure PaaS network access"))
 
+	in.Command = &[]string{ctx.Command()}[0]
+
 	switch ctx.Command() {
 	case "set":
+		in.Set = new(CmdSetArg)
 		if len(cli.Set.URLList+cli.Set.IPList) == 0 && !cli.Set.ForceFlag {
 			log.Fatal("[ERR] : Failed to get input:\n", err)
 		}
@@ -294,16 +310,18 @@ func (in *InputArguments) getInputParams() (err error) {
 		services := strings.Split(cli.Set.ServicesList, ";")
 
 		if len(ips) == 0 && cli.Set.ForceFlag {
-			in.PrivateOnly = &[]bool{true}[0]
-			in.ForcedApply = &[]bool{false}[0]
+			in.Set.PrivateOnly = &[]bool{true}[0]
+			in.Set.ForcedApply = &[]bool{false}[0]
 		} else {
-			in.ForcedApply = &[]bool{true}[0]
-			in.PrivateOnly = &[]bool{false}[0]
+			in.Set.ForcedApply = &[]bool{true}[0]
+			in.Set.PrivateOnly = &[]bool{false}[0]
 		}
 
-		in.AllowedIps = &ips
-		in.ServicesList = &services
-		in.EnhancedSecurity = &cli.Set.SecurityFlag
+		in.Set.AllowedIps = &ips
+		in.Set.ServicesList = &services
+		in.Set.EnhancedSecurity = &cli.Set.SecurityFlag
+	case "get":
+		fmt.Println("get")
 	default:
 		err = fmt.Errorf("[ERR] : Command not found")
 	}
@@ -315,28 +333,29 @@ func (in *InputArguments) getInputParams() (err error) {
 func main() {
 	// create a wait group to synchronize goroutines
 	var wg sync.WaitGroup
-	var in *InputArguments
+	var cmd *Cmd
 
 	// initiate input var
-	in = new(InputArguments)
+	cmd = new(Cmd)
 
 	// create a channel to send and receive data
 	ch := make(chan string)
 
 	// obtains input values
-	in.getInputParams()
+	cmd.readInput()
 
 	// login to Azure
 	login, err := azureLogin()
 	if err != nil {
 		log.Fatal("[ERR] : Failed to login:\n", err)
 	}
-	for _, paas := range *in.ServicesList {
+
+	for _, paas := range *cmd.Set.ServicesList {
 		wg.Add(1)
 
 		go func(paas string) {
 			defer wg.Done() // notify the wait group when the goroutine is done
-			err := SetPaasNet(login, paas, in)
+			err := SetPaasNet(login, paas, cmd.Set)
 			if err != nil {
 				ch <- fmt.Sprintf("[ERR] : %s failed with following message\n    %v", paas, err)
 				return

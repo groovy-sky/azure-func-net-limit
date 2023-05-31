@@ -60,6 +60,7 @@ Fully disable access (if you planning to use Private Endpoints only):
 - [] Add Windows OS for build
 - [] Add disable public access option with existing rules cleanup
 - [] Add another PaaS service support
+- [] Add get command
 
 ## Related materials
 
@@ -74,3 +75,7 @@ https://github.com/Azure-Samples/azure-sdk-for-go-samples/blob/main/sdk/resource
 https://learn.microsoft.com/en-us/rest/api/storagerp/storage-accounts/get-properties?tabs=Go#storageaccountgetproperties
 
 https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage#section-readme
+
+https://learn.microsoft.com/en-us/rest/api/resources/tenants/list?tabs=HTTP
+
+https://google.github.io/styleguide/go/
